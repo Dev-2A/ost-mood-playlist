@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse as FastFileResponse
 from sqlalchemy.orm import Session
+import os
 
 from app.core.database import get_db
 from app.models.schemas import (
@@ -116,3 +118,14 @@ def list_moods():
     """사용 가능한 무드 태그 목록"""
     from app.services.tagger import MOOD_TAGS
     return {"moods": MOOD_TAGS}
+
+
+@router.get("/audio/{track_id}")
+def stream_audio(track_id: int, db: Session = Depends(get_db)):
+    """오디오 파일을 스트리밍합니다."""
+    track = db.query(Track).filter(Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="곡을 찾을 수 없습니다.")
+    if not os.path.exists(track.file_path):
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+    return FastFileResponse(track.file_path, media_type="audio/mpeg")

@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from app.core.database import init_db
 from app.api.routes import router
@@ -8,7 +11,6 @@ from app.api.routes import router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 서버 시작 시 DB 초기화
     init_db()
     yield
 
@@ -20,7 +22,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 설정 (프론트엔드 연동용)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,7 +31,10 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api")
 
+# 정적 파일 서빙
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 @app.get("/")
 def root():
-    return {"message": "🎵 OST Mood Playlist API", "docs": "/docs"}
+    return FileResponse("static/index.html")
