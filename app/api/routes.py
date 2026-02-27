@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse as FastFileResponse
 from sqlalchemy.orm import Session
@@ -7,7 +9,7 @@ from app.core.database import get_db
 from app.models.schemas import (
     PlaylistRequest, PlaylistResponse, TrackResponse,
     RegisterRequest, RegisterResponse,
-    TrackDetailResponse,
+    TrackDetailResponse, RegisterFileRequest,
 )
 from app.services.pipeline import recommend_playlist, register_directory
 from app.services.track_service import get_all_tracks
@@ -18,19 +20,25 @@ router = APIRouter()
 
 @router.post("/playlist", response_model=PlaylistResponse)
 def get_playlist(req: PlaylistRequest, db: Session = Depends(get_db)):
-    """
-    기분/상황 텍스트를 입력받아 맞춤 플레이리스트를 반환합니다.
-    """
     results = recommend_playlist(
         mood_query=req.query,
         top_k=req.top_k,
         situation_filter=req.situation_filter,
         db=db,
     )
-    
+
+    # 필터 적용 결과 없으면 필터 없이 재시도
+    if not results and req.situation_filter:
+        results = recommend_playlist(
+            mood_query=req.query,
+            top_k=req.top_k,
+            situation_filter=None,
+            db=db,
+        )
+
     if not results:
-        raise HTTPException(status_code=404, detail="조건에 맞는 곡이 없습니다.")
-    
+        raise HTTPException(status_code=404, detail="등록된 곡이 없습니다.")
+
     return PlaylistResponse(
         query=req.query,
         situation_filter=req.situation_filter,
@@ -122,10 +130,30 @@ def list_moods():
 
 @router.get("/audio/{track_id}")
 def stream_audio(track_id: int, db: Session = Depends(get_db)):
-    """오디오 파일을 스트리밍합니다."""
     track = db.query(Track).filter(Track.id == track_id).first()
     if not track:
         raise HTTPException(status_code=404, detail="곡을 찾을 수 없습니다.")
     if not os.path.exists(track.file_path):
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
-    return FastFileResponse(track.file_path, media_type="audio/mpeg")
+
+    ext = Path(track.file_path).suffix.lower()
+    mime_map = {
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".flac": "audio/flac",
+        ".ogg": "audio/ogg",
+        ".m4a": "audio/mp4",
+    }
+    media_type = mime_map.get(ext, "audio/mpeg")
+    return FastFileResponse(track.file_path, media_type=media_type)
+
+
+@router.post("/register/file", response_model=RegisterResponse)
+def register_single_file(req: RegisterFileRequest, db: Session = Depends(get_db)):
+    """단일 오디오 파일을 등록합니다."""
+    try:
+        from app.services.track_service import register_track
+        track = register_track(req.file_path, db, game=req.game)
+        return RegisterResponse(message="등록 완료", registered=1)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

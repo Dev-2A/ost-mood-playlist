@@ -56,3 +56,8 @@ class TrackDetailResponse(BaseModel):
     situation: list[str]
     bpm_category: str
     energy_level: str
+
+
+class RegisterFileRequest(BaseModel):
+    file_path: str
+    game: Optional[str] = None
